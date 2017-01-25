@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.DS_Store
+backups
+logs/*
+!*.keep
+!*.md
+
+# Config Stuff
+credentials.js
+
+# MongoDb
+data/*
