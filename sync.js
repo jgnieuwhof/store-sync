@@ -3,7 +3,7 @@
 
 import chalk from 'chalk'
 import { MongoClient } from 'mongodb'
-//import _ from 'lodash'
+// import _ from 'lodash'
 
 import Etsy from './connectors/etsy'
 import Shopify from './connectors/shopify'
@@ -53,7 +53,7 @@ let sync = async () => {
 
 
     /* TODO: Some shitty test code, let's introduce a test suite soon */
-    /*
+    /*/
     slaves[0].products = _.cloneDeep(master.products)
     //delete master.products['505049521']
     delete master.products['505049903']
@@ -63,8 +63,9 @@ let sync = async () => {
     Object.keys(slaves[0].products['505049521'].variants).forEach(sku => {
       slaves[0].products['505049521'].variants[sku].quantity = 0
     })
+    delete slaves[0].products['484367950']
     slaves[0].products['505053407'].variants['00034'].quantity = 0
-    */
+    /*/
 
     // Iterate all, figure out what the hell we need to do with each product
     let dbProducts = await productFind(db)
