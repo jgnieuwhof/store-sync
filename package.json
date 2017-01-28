@@ -23,6 +23,7 @@
     "mongodb": "^2.2.21",
     "node-fetch": "^1.6.3",
     "request": "^2.79.0",
-    "updeep": "^1.0.0"
+    "updeep": "^1.0.0",
+    "winston": "^2.3.1"
   }
 }

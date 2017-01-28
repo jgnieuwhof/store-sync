@@ -3,10 +3,12 @@
 
 import chalk from 'chalk'
 import { MongoClient } from 'mongodb'
-import _ from 'lodash'
+//import _ from 'lodash'
 
 import Etsy from './connectors/etsy'
 import Shopify from './connectors/shopify'
+import { productFind, productRemove, productSellOut } from './db-helpers'
+import logger from './helpers/logger'
 
 let updateVariantQuantity = ({ sku, updateVariants, dbVariant, otherVariant, name }) => {
   if (!updateVariants[sku]) {
@@ -16,7 +18,7 @@ let updateVariantQuantity = ({ sku, updateVariants, dbVariant, otherVariant, nam
     }
   }
   let diff = otherVariant.quantity - dbVariant.quantity
-  if (diff != 0) {
+  if (diff !== 0) {
     updateVariants[sku] = {
       updatedBy: [ ...updateVariants[sku].updatedBy, name ],
       diff: updateVariants[sku].diff + diff,
@@ -26,7 +28,7 @@ let updateVariantQuantity = ({ sku, updateVariants, dbVariant, otherVariant, nam
 
 let sync = async () => {
   try {
-    let cursor, db = await MongoClient.connect(`mongodb://localhost:27017/storeSync`)
+    let db = await MongoClient.connect(`mongodb://localhost:27017/storeSync`)
     let updateTracker = {}
     let master = new Etsy()
     let slaves = [new Shopify()]
@@ -40,11 +42,12 @@ let sync = async () => {
     // Import new objects to the database
     for (let masterId of Object.keys(master.products)) {
       let mProduct = master.products[masterId]
-      cursor = await db.collection(`products`).find({ masterId: mProduct.masterId })
-      let dbProduct = await cursor.toArray();
-      if (!dbProduct.length) {
-        console.log(`Found a new product: ${mProduct.masterId} : ${mProduct.title}`)
-        await db.collection(`products`).insertOne(mProduct)
+      if (mProduct.state === `active`) {
+        let dbProduct = await productFind(db, { masterId })
+        if (!dbProduct.length) {
+          logger.info(`Found a new product: ${mProduct.masterId} : ${mProduct.title}`)
+          await db.collection(`products`).insertOne(mProduct)
+        }
       }
     }
 
@@ -52,22 +55,24 @@ let sync = async () => {
     /* TODO: Some shitty test code, let's introduce a test suite soon */
     /*
     slaves[0].products = _.cloneDeep(master.products)
-    delete master.products['505049521']
+    //delete master.products['505049521']
     delete master.products['505049903']
     master.products['497845627'].state = 'inactive'
     master.products['505051307'].variants['00032'].quantity = 4
     master.products['505053407'].variants['00034'].quantity = 0
-    Object.keys(slaves[0].products['505049521'].variants).forEach(sku => { slaves[0].products['505049521'].variants[sku].quantity = 0 })
+    Object.keys(slaves[0].products['505049521'].variants).forEach(sku => {
+      slaves[0].products['505049521'].variants[sku].quantity = 0
+    })
     slaves[0].products['505053407'].variants['00034'].quantity = 0
     */
 
     // Iterate all, figure out what the hell we need to do with each product
-    cursor = await db.collection(`products`).find()
-    let dbProducts = await cursor.toArray()
+    let dbProducts = await productFind(db)
     for (let dbProduct of dbProducts) {
       let masterId = dbProduct.masterId
       let mProduct = master.products[masterId]
       let update = {
+        db: { delete: false, sellOut: false },
         deleteFrom: [],
         sellOut: [],
         addTo: [],
@@ -76,14 +81,18 @@ let sync = async () => {
 
       // Have to check for no product at all since etsy sold out listings can't be retrieved (wtf)
       if (!mProduct) {
+        update.db.sellOut = true
         for(let slave of slaves) {
           let sProduct = slave.products[masterId]
-          if (sProduct && Object.keys(sProduct.variants).find(sku => sProduct.variants[sku].quantity > 0)) {
+          if (sProduct && Object.keys(sProduct.variants)
+            .find(sku => sProduct.variants[sku].quantity > 0)
+          ) {
             update = { ...update, sellOut: [ ...update.sellOut, slave.name ] }
           }
         }
       }
       else if (mProduct.state !== `active`) {
+        update.db.delete = true
         for(let slave of slaves) {
           if (slave.products[masterId]) {
             update = { ...update, deleteFrom: [ ...update.deleteFrom, slave.name ] }
@@ -91,6 +100,7 @@ let sync = async () => {
         }
       }
       else {
+        // Sync up quantities w/ slaves
         for(let sku of Object.keys(dbProduct.variants)) {
           updateVariantQuantity({
             sku,
@@ -121,22 +131,66 @@ let sync = async () => {
       updateTracker[masterId] = update
     }
 
-    console.log(updateTracker)
-    for(let masterId of Object.keys(updateTracker)) {
-      for(let sku of Object.keys(updateTracker[masterId].variants)) {
-        console.log(updateTracker[masterId].variants[sku])
-      }
-    }
-    process.exit()
-
+    // use our update object to update our connectors
     for(let masterId of Object.keys(updateTracker)) {
       let update = updateTracker[masterId]
+      let dbProduct = (await productFind(db, { masterId }))[0]
+      for(let slave of slaves.filter(s => update.deleteFrom.includes(s.name))) {
+        await slave.deleteProduct({ masterId })
+      }
+      for(let slave of slaves.filter(s => update.sellOut.includes(s.name))) {
+        await slave.sellOutProduct({ masterId })
+      }
+      for(let slave of slaves.filter(s => update.addTo.includes(s.name))) {
+        await slave.addProduct({ masterId })
+      }
+      for(let sku of Object.keys(update.variants)) {
+        let dbVariant = dbProduct.variants[sku]
+        let uVariant = update.variants[sku]
+        if (uVariant.diff !== 0) {
+          let newQuantity = dbVariant.quantity + uVariant.diff
+          if (newQuantity < 0) {
+            // Send admin email notifying collision and problem
+            logger.info(`product ${masterId} had an oversold sale collision\n`
+              + `platforms involved: ${uVariant.updatedBy}`
+            )
+            newQuantity = 0
+          }
+          logger.info(`updating ${masterId} with quantity ${newQuantity} in:\n`
+            + ` - ${master.name}\n`
+            + slaves.map(s => ` - ${s.name}\n`).join(``)
+          )
+          await master.updateQuantity({ masterId, sku, newQuantity })
+          for (let slave of slaves) {
+            await slave.updateQuantity({ masterId, sku, newQuantity })
+          }
+        }
+      }
     }
 
+    // update our db using our update object
+    for (let masterId of Object.keys(updateTracker)) {
+      let { db: dbUpdate } = updateTracker[masterId]
+      if (dbUpdate.delete) {
+        logger.info(`product ${masterId} deleted`)
+        await productRemove(db, { masterId })
+      }
+      else if (dbUpdate.sellOut) {
+        logger.info(`product ${masterId} sold out`)
+        await productSellOut(db, { masterId })
+      }
+    }
   }
   catch(e) {
-    console.log(chalk.red(`Error in sync: `, e, e.stack))
+    logger.info(chalk.red(`Error in sync: `, e, e.stack))
   }
 }
 
-sync()
+let main = async () => {
+  logger.info(`starting sync`)
+  await sync()
+  logger.info(`sync finished, exiting`)
+  process.exit()
+}
+
+main()
