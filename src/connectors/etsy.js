@@ -2,7 +2,7 @@
 import chalk from 'chalk'
 import request from 'request'
 
-import { etsy as etsyCreds } from '../credentials'
+import { etsy as etsyCreds } from '../../credentials'
 import logger from '../helpers/logger'
 
 class Etsy {

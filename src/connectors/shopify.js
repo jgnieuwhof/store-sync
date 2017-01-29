@@ -3,7 +3,7 @@ import chalk from 'chalk'
 import fetch from 'node-fetch'
 
 import logger from '../helpers/logger'
-import { shopify as shopifyCreds } from '../credentials'
+import { shopify as shopifyCreds } from '../../credentials'
 
 class Shopify {
   name = 'Shopify'
