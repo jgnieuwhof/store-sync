@@ -1,10 +1,7 @@
 
 import chalk from 'chalk'
-import { MongoClient } from 'mongodb'
 // import _ from 'lodash'
 
-import Etsy from './connectors/etsy'
-import Shopify from './connectors/shopify'
 import { productFind, productRemove, productSellOut, productInsertOne } from './db-helpers'
 import logger from './helpers/logger'
 
@@ -14,10 +11,10 @@ class Syncer {
   slaves = []
   updateTracker = {}
 
-  _initialize = async () => {
-    this.db = await MongoClient.connect(`mongodb://localhost:27017/storeSync`)
-    this.master = new Etsy()
-    this.slaves = [ new Shopify() ]
+  initialize = async ({ db, master, slaves }) => {
+    this.db = db
+    this.master = master
+    this.slaves = slaves
   }
 
   _fetchProducts = async () => {
@@ -187,7 +184,6 @@ class Syncer {
 
   sync = async () => {
     try {
-      await this._initialize()
       await this._fetchProducts()
       await this._addNewProductsToDatabase()
       await this._calculateUpdates()
