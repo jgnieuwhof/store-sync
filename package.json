@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "start": "node index.js",
-    "test": "mocha test/index.js"
+    "test": "mocha --compilers js:babel-core/register --recursive tests"
   },
   "devDependencies": {
     "babel-cli": "^6.18.0",

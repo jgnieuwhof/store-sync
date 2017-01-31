@@ -33,8 +33,8 @@ class Shopify {
     this.log(`sellOutProduct ${masterId}`)
   }
 
-  addProduct = async ({ masterId }) => {
-    this.log(`addProduct ${masterId}`)
+  addProduct = async (product) => {
+    this.log(`addProduct ${product.masterId}`)
   }
 
   updateQuantity = async ({ masterId, sku, newQuantity }) => {

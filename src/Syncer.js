@@ -22,19 +22,6 @@ class Syncer {
     for(let i = 0; i < this.slaves.length; i++) {
       await this.slaves[i].fetchProducts()
     }
-
-    // TODO: Some shitty test code, let's introduce a test suite soon
-    // this.slaves[0].products = _.cloneDeep(this.master.products)
-    // //delete this.master.products['505049521']
-    // delete this.master.products['505049903']
-    // this.master.products['497845627'].state = 'inactive'
-    // this.master.products['505051307'].variants['00032'].quantity = 4
-    // this.master.products['505053407'].variants['00034'].quantity = 0
-    // Object.keys(this.slaves[0].products['505049521'].variants).forEach(sku => {
-    //   this.slaves[0].products['505049521'].variants[sku].quantity = 0
-    // })
-    // delete this.slaves[0].products['484367950']
-    // this.slaves[0].products['505053407'].variants['00034'].quantity = 0
   }
 
   _addNewProductsToDatabase = async () => {
@@ -145,7 +132,7 @@ class Syncer {
       }
 
       for(let slave of this.slaves.filter(s => update.addTo.includes(s.name))) {
-        await slave.addProduct({ masterId })
+        await slave.addProduct(this.master.products[masterId])
       }
 
       for(let sku of Object.keys(update.variants)) {
