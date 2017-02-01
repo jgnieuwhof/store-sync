@@ -4,6 +4,8 @@ import td from 'testdouble'
 
 import Syncer from '../src/Syncer'
 import dbInit from './helpers/dbInit'
+import cleanDbObject from './helpers/cleanDbObject'
+import { productFind } from '../src/db-helpers'
 
 // TODO: Some shitty test code, let's introduce a test suite soon
 // this.slaves[0].products = _.cloneDeep(this.master.products)
@@ -19,18 +21,42 @@ import dbInit from './helpers/dbInit'
 // this.slaves[0].products['505053407'].variants['00034'].quantity = 0
 
 describe(`Syncer`, () => {
-  let db
+  let db, master, slaves, syncer
 
   before(async () => {
     db = await dbInit()
+    master = {
+      name: `master`,
+      products: {
+        '1': {
+          masterId: '1',
+          state: `active`,
+          title: `first product fake title`,
+          variants: {
+            '001': {
+              sku: '001',
+              quantity: 10,
+            },
+          },
+        },
+      },
+      fetchProducts: td.function(`.fetchProducts`),
+    }
+    slaves = [{
+      name: `slave`,
+      products: {},
+      fetchProducts: td.function(`.fetchProducts`),
+      addProduct: td.function(`.addProduct`),
+    }]
+    syncer = new Syncer()
   })
 
   describe(`#initialize`, () => {
+    before(async () => {
+      await syncer.initialize({ db, master, slaves })
+    })
+
     it(`should set up its member variables`, () => {
-      let syncer = new Syncer()
-      let master = { hi: `hi` }
-      let slaves = [ { bye: `bye` } ]
-      syncer.initialize({ db, master, slaves })
       expect(syncer.db).to.equal(db)
       expect(syncer.master).to.equal(master)
       expect(syncer.slaves).to.equal(slaves)
@@ -38,35 +64,29 @@ describe(`Syncer`, () => {
   })
 
   describe(`#sync`, async () => {
-    it(`should only add new products if found`, async () => {
-      let master = {
-        name: `master`,
-        products: {
-          '12345': {
-            masterId: '12345',
-            state: `active`,
-            title: `first product fake title`,
-            variants: {
-              '001': {
-                sku: '001',
-                quantity: 10,
-              },
-            },
-          },
-        },
-        fetchProducts: td.function(`.fetchProducts`),
-      }
-      let slave = {
-        name: `slave`,
-        products: {},
-        fetchProducts: td.function(`.fetchProducts`),
-        addProduct: td.function(`.addProduct`),
-      }
-      let syncer = new Syncer()
-      await syncer.initialize({ db, master, slaves: [ slave ] })
+    before(async () => {
+      await syncer.initialize({ db, master, slaves })
       await syncer.sync()
-      td.verify(master.fetchProducts())
-      td.verify(slave.addProduct(master.products['12345']))
+    })
+
+    it(`should fetch all master and slave products`, async () => {
+      td.verify(master.fetchProducts(), { times: 1 })
+      for(let slave of slaves) {
+        td.verify(slave.fetchProducts(), { times: 1})
+      }
+    })
+
+    it(`should add new products to slaves`, async () => {
+      td.verify(slaves[0].addProduct(master.products['1']))
+    })
+
+    it(`should add new products to the database tracker`, async () => {
+      let product1, product2
+      let products = await productFind(db)
+      expect(products.length).to.equal(1)
+      product1 = cleanDbObject(products.find(p => p.masterId === `1`))
+      product2 = cleanDbObject(master.products[`1`])
+      expect(product1).to.eql(product2)
     })
   })
 })
