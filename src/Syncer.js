@@ -1,8 +1,14 @@
 
 import chalk from 'chalk'
-// import _ from 'lodash'
+import u from 'updeep'
 
-import { productFind, productRemove, productSellOut, productInsertOne } from './db-helpers'
+import {
+  productFind,
+  productRemove,
+  productSellOut,
+  productInsertOne,
+  productUpdateOne,
+} from './db-helpers'
 import logger from './helpers/logger'
 
 class Syncer {
@@ -138,7 +144,7 @@ class Syncer {
       for(let sku of Object.keys(update.variants)) {
         let dbVariant = dbProduct.variants[sku]
         let uVariant = update.variants[sku]
-        if (uVariant.diff !== 0) {
+        if (uVariant.updatedBy.length) {
           let newQuantity = dbVariant.quantity + uVariant.diff
           if (newQuantity < 0) {
             // Send admin email notifying collision and problem
@@ -151,6 +157,8 @@ class Syncer {
             + ` - ${this.master.name}\n`
             + this.slaves.map(s => ` - ${s.name}\n`).join(``)
           )
+          dbProduct.variants = u({ [sku]: { quantity: newQuantity } }, dbProduct.variants)
+          await productUpdateOne(this.db, { masterId }, { $set: { variants: dbProduct.variants }})
           await this.master.updateQuantity({ masterId, sku, newQuantity })
           for (let slave of this.slaves) {
             await slave.updateQuantity({ masterId, sku, newQuantity })
