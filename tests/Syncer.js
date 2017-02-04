@@ -38,6 +38,7 @@ describe(`Syncer`, () => {
       getProduct(`4`, `active`, [2, 4, 5, 7]),
       getProduct(`5`, `active`, [1]),
       getProduct(`6`, `active`, [2]),
+      getProduct(`7`, `active`, [2]),
     ]
     db = await dbInit()
     await productInsert(db, products.slice(1).map(p => _.cloneDeep(p)))
@@ -55,6 +56,9 @@ describe(`Syncer`, () => {
         '6': u({ variants: {
             ['6-1']: { quantity: 1 },
           }}, products[5]),
+        '7': u({ variants: {
+            ['7-1']: { quantity: 1 },
+          }}, products[6]),
       },
       fetchProducts: td.function(`.fetchProducts`),
       updateQuantity: td.function(`.updateQuantity`),
@@ -72,6 +76,9 @@ describe(`Syncer`, () => {
         '6': u({ variants: {
             ['6-1']: { quantity: 1 },
           }}, products[5]),
+        '7': u({ variants: {
+            ['7-1']: { quantity: 0 },
+          }}, products[6]),
       },
       fetchProducts: td.function(`.fetchProducts`),
       addProduct: td.function(`.addProduct`),
@@ -114,8 +121,8 @@ describe(`Syncer`, () => {
 
     it(`should update master and slave with changed quantities`, async () => {
       let slave = slaves[0] // just to get line length < 100 (shrug)
-      td.verify(master.updateQuantity(td.matchers.anything()), { times: 5 })
-      td.verify(slave.updateQuantity(td.matchers.anything()), { times: 5 })
+      td.verify(master.updateQuantity(td.matchers.anything()), { times: 6 })
+      td.verify(slave.updateQuantity(td.matchers.anything()), { times: 6 })
       td.verify(master.updateQuantity({ masterId: "4", sku: "4-1", newQuantity: 1 }), { times: 1 })
       td.verify(slave.updateQuantity({ masterId: "4", sku: "4-1", newQuantity: 1 }), { times: 1 })
       td.verify(master.updateQuantity({ masterId: "4", sku: "4-2", newQuantity: 3 }), { times: 1 })
@@ -126,6 +133,8 @@ describe(`Syncer`, () => {
       td.verify(slave.updateQuantity({ masterId: "4", sku: "4-4", newQuantity: 7 }), { times: 1 })
       td.verify(master.updateQuantity({ masterId: "6", sku: "6-1", newQuantity: 0 }), { times: 1 })
       td.verify(slave.updateQuantity({ masterId: "6", sku: "6-1", newQuantity: 0 }), { times: 1 })
+      td.verify(master.updateQuantity({ masterId: "7", sku: "7-1", newQuantity: 0 }), { times: 1 })
+      td.verify(slave.updateQuantity({ masterId: "7", sku: "7-1", newQuantity: 0 }), { times: 1 })
     })
 
     it(`should sell out products not found in the master`, async () => {
@@ -140,7 +149,7 @@ describe(`Syncer`, () => {
 
     it(`should add new products to the database tracker`, async () => {
       let dbProducts = await productFind(db)
-      expect(dbProducts.length).to.equal(5)
+      expect(dbProducts.length).to.equal(6)
       verifyDbProduct({
         product1: dbProducts.find(p => p.masterId === `1`),
         product2: master.products[`1`],
@@ -160,6 +169,30 @@ describe(`Syncer`, () => {
               ['4-4']: { quantity: 7 },
             },
           }, products.find(p => p.masterId === `4`)),
+      })
+      verifyDbProduct({
+        product1: dbProducts.find(p => p.masterId === `5`),
+        product2: u({
+          variants: {
+            ['5-1']: { quantity: 0 },
+          },
+        }, products.find(p => p.masterId === `5`)),
+      })
+      verifyDbProduct({
+        product1: dbProducts.find(p => p.masterId === `6`),
+        product2: u({
+          variants: {
+            ['6-1']: { quantity: 0 },
+          },
+        }, products.find(p => p.masterId === `6`)),
+      })
+      verifyDbProduct({
+        product1: dbProducts.find(p => p.masterId === `7`),
+        product2: u({
+          variants: {
+            ['7-1']: { quantity: 0 },
+          },
+        }, products.find(p => p.masterId === `7`)),
       })
     })
   })
